@@ -1,35 +1,25 @@
 import "server-only";
 
-import puppeteer from "puppeteer";
 import type { ReportSnapshot } from "@/lib/supabase/reports";
 
 export const runtime = "nodejs";
 
 async function launchBrowser() {
   if (process.env.VERCEL) {
-    try {
-      const importModule = new Function("specifier", "return import(specifier)") as (specifier: string) => Promise<unknown>;
-      const chromiumModule = await importModule("@sparticuz/chromium") as {
-        default?: {
-          args: string[];
-          executablePath: () => Promise<string>;
-          headless: boolean | "shell";
-        };
-      };
-      const chromium = chromiumModule.default;
+    const [{ default: chromium }, { default: puppeteerCore }] = await Promise.all([
+      import("@sparticuz/chromium"),
+      import("puppeteer-core"),
+    ]);
 
-      if (chromium) {
-        return puppeteer.launch({
-          args: chromium.args,
-          executablePath: await chromium.executablePath(),
-          headless: chromium.headless,
-        });
-      }
-    } catch {
-      // Fallback for local development or deployments that bundle Chromium through puppeteer.
-    }
+    return puppeteerCore.launch({
+      args: [...chromium.args, "--disable-dev-shm-usage"],
+      defaultViewport: { width: 1280, height: 720 },
+      executablePath: await chromium.executablePath(),
+      headless: true,
+    });
   }
 
+  const { default: puppeteer } = await import("puppeteer");
   return puppeteer.launch({
     headless: true,
     args: ["--no-sandbox", "--disable-setuid-sandbox"],

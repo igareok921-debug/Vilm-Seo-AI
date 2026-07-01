@@ -324,8 +324,16 @@ export async function saveReportPdf(input: {
       const { data } = supabase.storage.from("reports").getPublicUrl(fileName);
       return data.publicUrl;
     }
+
+    if (process.env.VERCEL) {
+      throw new Error(`Report PDF upload failed: ${error.message}`);
+    }
   } catch (error) {
-    console.warn("[reports] Supabase Storage indisponibil, folosesc fallback local:", error);
+    if (process.env.VERCEL) {
+      throw error;
+    }
+
+    console.warn("[reports] Report storage unavailable, using local fallback:", error);
   }
 
   const publicDir = path.join(process.cwd(), "public", "reports", input.websiteId);
