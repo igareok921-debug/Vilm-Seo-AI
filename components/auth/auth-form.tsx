@@ -14,6 +14,9 @@ type AuthMode = "login" | "register" | "forgot" | "reset";
 
 function getAuthErrorMessage(message: string, t: (key: DictionaryKey) => string) {
   const lower = message.toLowerCase();
+  if (lower.includes("oauth_callback_failed")) return t("auth.googleError");
+  if (lower.includes("oauth_missing_code")) return t("auth.googleError");
+  if (lower.includes("oauth_denied")) return t("auth.googleError");
   if (lower.includes("invalid login credentials")) return t("auth.invalidCredentials");
   if (lower.includes("email not confirmed")) return t("auth.emailNotConfirmed");
   if (lower.includes("password")) return t("auth.passwordInvalid");
@@ -26,25 +29,32 @@ export function AuthForm({ mode }: { mode: AuthMode }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { t } = useI18n();
-  const [error, setError] = useState("");
+  const [error, setError] = useState(() => {
+    const authError = searchParams.get("error");
+    return authError ? getAuthErrorMessage(authError, t) : "";
+  });
   const [success, setSuccess] = useState("");
   const [loading, setLoading] = useState(false);
 
   const next = searchParams.get("next") || "/dashboard";
-  const appUrl =
-    process.env.NEXT_PUBLIC_APP_URL ||
-    (typeof window !== "undefined" ? window.location.origin : "http://localhost:3000");
+  const getAppOrigin = () =>
+    typeof window !== "undefined"
+      ? window.location.origin
+      : process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 
   async function handleGoogle() {
     setLoading(true);
     setError("");
 
     try {
+      const callbackUrl = new URL("/auth/callback", getAppOrigin());
+      callbackUrl.searchParams.set("next", next);
+
       const supabase = createClient();
       const { error: oauthError } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {
-          redirectTo: `${appUrl}/auth/callback?next=${encodeURIComponent(next)}`,
+          redirectTo: callbackUrl.toString(),
         },
       });
       if (oauthError) throw oauthError;
@@ -67,6 +77,10 @@ export function AuthForm({ mode }: { mode: AuthMode }) {
     const supabase = createClient();
 
     try {
+      const callbackUrl = new URL("/auth/callback", getAppOrigin());
+      callbackUrl.searchParams.set("next", "/dashboard");
+      const resetUrl = new URL("/reset-password", getAppOrigin());
+
       if (mode === "login") {
         const { error: loginError } = await supabase.auth.signInWithPassword({ email, password });
         if (loginError) throw loginError;
@@ -81,7 +95,7 @@ export function AuthForm({ mode }: { mode: AuthMode }) {
           password,
           options: {
             data: { full_name: fullName },
-            emailRedirectTo: `${appUrl}/auth/callback?next=/dashboard`,
+            emailRedirectTo: callbackUrl.toString(),
           },
         });
         if (registerError) throw registerError;
@@ -91,7 +105,7 @@ export function AuthForm({ mode }: { mode: AuthMode }) {
 
       if (mode === "forgot") {
         const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
-          redirectTo: `${appUrl}/reset-password`,
+          redirectTo: resetUrl.toString(),
         });
         if (resetError) throw resetError;
         setSuccess(t("auth.resetSent"));

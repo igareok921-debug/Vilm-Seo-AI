@@ -20,27 +20,41 @@ function isWebsiteScopedPath(pathname: string) {
 export async function GET(request: Request) {
   const requestUrl = new URL(request.url);
   const code = requestUrl.searchParams.get("code");
+  const authError = requestUrl.searchParams.get("error") || requestUrl.searchParams.get("error_code");
   const next = requestUrl.searchParams.get("next") || "/dashboard";
   const targetUrl = new URL(next, requestUrl.origin);
+  const loginUrl = new URL("/login", requestUrl.origin);
 
-  if (code) {
-    const supabase = await createClient();
-    await supabase.auth.exchangeCodeForSession(code);
+  if (authError) {
+    loginUrl.searchParams.set("error", "oauth_denied");
+    return NextResponse.redirect(loginUrl);
+  }
 
-    if (isWebsiteScopedPath(targetUrl.pathname)) {
-      const { data: websites } = await supabase
-        .from("websites")
-        .select("id, name, url")
-        .order("created_at", { ascending: true });
-      const availableWebsites = (websites ?? []) as Array<{ id: string; name: string; url: string }>;
+  if (!code) {
+    loginUrl.searchParams.set("error", "oauth_missing_code");
+    return NextResponse.redirect(loginUrl);
+  }
 
-      if (availableWebsites.length > 0) {
-        const currentWebsiteId = targetUrl.searchParams.get("websiteId");
-        const resolvedWebsite = resolveWebsiteIdentifier(currentWebsiteId, availableWebsites) ?? availableWebsites[0];
-        targetUrl.searchParams.set("websiteId", resolvedWebsite.id);
-      } else {
-        targetUrl.searchParams.delete("websiteId");
-      }
+  const supabase = await createClient();
+  const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
+  if (exchangeError) {
+    loginUrl.searchParams.set("error", "oauth_callback_failed");
+    return NextResponse.redirect(loginUrl);
+  }
+
+  if (isWebsiteScopedPath(targetUrl.pathname)) {
+    const { data: websites } = await supabase
+      .from("websites")
+      .select("id, name, url")
+      .order("created_at", { ascending: true });
+    const availableWebsites = (websites ?? []) as Array<{ id: string; name: string; url: string }>;
+
+    if (availableWebsites.length > 0) {
+      const currentWebsiteId = targetUrl.searchParams.get("websiteId");
+      const resolvedWebsite = resolveWebsiteIdentifier(currentWebsiteId, availableWebsites) ?? availableWebsites[0];
+      targetUrl.searchParams.set("websiteId", resolvedWebsite.id);
+    } else {
+      targetUrl.searchParams.delete("websiteId");
     }
   }
 
